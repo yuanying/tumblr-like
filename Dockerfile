@@ -1,13 +1,14 @@
 # docker build -t yuanying/tumblr-like .
 # docker run -d -v /volumes/downloads:/usr/src/app/contents yuanying/tumblr-like
-FROM ruby:2.4.4-alpine as builder
+FROM ruby:2.5.5-alpine as builder
 
-RUN echo "@testing http://dl-cdn.alpinelinux.org/alpine/edge/testing" >> /etc/apk/repositories
-RUN apk --update add freeimage-dev@testing
+RUN echo "@community http://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories
+RUN apk --update add freeimage-dev@community
 RUN apk --update add --virtual build-dependencies \
     build-base \
     curl-dev \
     linux-headers
+ENV BUNDLER_VERSION 2.0.1
 RUN gem install bundler
 WORKDIR /tmp
 COPY Gemfile Gemfile
@@ -16,9 +17,10 @@ ENV BUNDLE_JOBS=4
 RUN bundle install
 RUN apk del build-dependencies
 
-FROM ruby:2.4.4-alpine
+FROM ruby:2.5.5-alpine
 MAINTAINER O. Yuanying "yuan-docker@fraction.jp"
 
+ENV BUNDLER_VERSION 2.0.1
 RUN gem install bundler
 WORKDIR /tmp
 COPY Gemfile Gemfile

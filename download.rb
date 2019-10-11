@@ -1,6 +1,7 @@
 #!/usr/bin/env ruby
 require 'open-uri'
 require 'tumblr_client'
+require 'nokogiri'
 require 'fileutils'
 
 script_dir    = File.expand_path(File.dirname(__FILE__))
@@ -73,6 +74,22 @@ rescue => ex
   pp ex
 end
 
+def download_text(contents_path, like)
+  current_timestamp = like['liked_timestamp']
+
+  like = Nokogiri::HTML.parse(like['body'])
+  like.css('img').each do |img|
+    url = img['src']
+    filepath = create_filepath(contents_path, current_timestamp, url)
+
+    download(like, url, filepath)
+  end
+rescue => ex
+  require 'pp'
+  pp like
+  pp ex
+end
+
 def download_video(contents_path, like)
   current_timestamp = like['liked_timestamp']
   video_id = like['id']
@@ -119,10 +136,13 @@ while true do
     end
 
     puts "like! #{current_timestamp}"
+    puts "Type: #{like['type']}"
     if like['type'] == 'photo'
       download_photos(contents_path, like)
     elsif like['type'] == 'video'
       download_video(contents_path, like)
+    elsif like['type'] == 'text'
+      download_text(contents_path, like)
     end
 
   end
