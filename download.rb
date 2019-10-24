@@ -68,6 +68,13 @@ def download_photos(contents_path, like)
 
     download(like, url, filepath)
   end
+  caption = Nokogiri::HTML.parse(like['caption'])
+  caption.css('img').each do |img|
+    url = img['src']
+    filepath = create_filepath(contents_path, current_timestamp, url)
+
+    download(like, url, filepath)
+  end
 rescue => ex
   require 'pp'
   pp like
@@ -77,8 +84,8 @@ end
 def download_text(contents_path, like)
   current_timestamp = like['liked_timestamp']
 
-  like = Nokogiri::HTML.parse(like['body'])
-  like.css('img').each do |img|
+  body = Nokogiri::HTML.parse(like['body'])
+  body.css('img').each do |img|
     url = img['src']
     filepath = create_filepath(contents_path, current_timestamp, url)
 
