@@ -85,11 +85,36 @@ def download_text(contents_path, like)
   current_timestamp = like['liked_timestamp']
 
   body = Nokogiri::HTML.parse(like['body'])
+
   body.css('img').each do |img|
     url = img['src']
     filepath = create_filepath(contents_path, current_timestamp, url)
 
     download(like, url, filepath)
+  end
+
+  body.css('video').each do | video |
+    thumbnail_url =  video['poster']
+    video_id = File.basename(thumbnail_url, ".*")
+    thumbnail_ext = File.extname(thumbnail_url)
+    thumbnail_filename = "#{video_id}#{thumbnail_ext}"
+    thumbnail_filepath = create_filepath(
+      contents_path,
+      current_timestamp,
+      thumbnail_url,
+      thumbnail_filename,
+    )
+    download(like, thumbnail_url, thumbnail_filepath)
+    video_url =  video.css('source')[0]['src']
+    video_ext = File.extname(video_url)
+    video_filename = "#{video_id}#{video_ext}"
+    video_filepath = create_filepath(
+      contents_path,
+      current_timestamp,
+      video_url,
+      video_filename,
+    )
+    download(like, video_url, video_filepath)
   end
 rescue => ex
   require 'pp'
