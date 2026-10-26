@@ -14,7 +14,7 @@ timestamp = 0
 
 open(timestamp_file) do |io|
   timestamp = io.read.to_i
-end if File.exists?(timestamp_file)
+end if File.exist?(timestamp_file)
 
 Tumblr.configure do |config|
   config.consumer_key       = ENV['TUMBLR_CONSUMER_KEY']
@@ -43,8 +43,8 @@ def download like, url, filepath
   puts "url: #{url}"
   puts "filepath: #{filepath}"
   begin
-    unless File.exists?(filepath)
-      open(url) do |input|
+    unless File.exist?(filepath)
+      URI.open(url) do |input|
         open(filepath, 'w') do |output|
           output.write input.read
         end
