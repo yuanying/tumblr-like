@@ -1,31 +1,24 @@
-# docker build -t yuanying/tumblr-like .
-# docker run -d -v /volumes/downloads:/usr/src/app/contents yuanying/tumblr-like
-FROM ruby:2.5-slim as builder
+# docker build -t ghcr.io/yuanying/tumblr-like .
+# docker run -d -v /volumes/downloads:/usr/src/app/contents ghcr.io/yuanying/tumblr-like
+FROM ruby:4.0-slim AS builder
 
-RUN apt update
-RUN apt install -y build-essential \
-    libfreeimage-dev \
-    libcurl4
-ENV BUNDLER_VERSION 2.0.1
-RUN gem install bundler
+# git fetches tumblr_client, which is pinned to a tag on GitHub.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential git \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /tmp
-COPY Gemfile Gemfile
-COPY Gemfile.lock Gemfile.lock
-ENV BUNDLE_JOBS=4
+COPY Gemfile Gemfile.lock ./
+# Fail rather than resolve again when Gemfile.lock does not match Gemfile.
+ENV BUNDLE_JOBS=4 BUNDLE_FROZEN=true
 RUN bundle install
 
-FROM ruby:2.5-slim
-MAINTAINER O. Yuanying "yuan-docker@fraction.jp"
+FROM ruby:4.0-slim
+LABEL org.opencontainers.image.source="https://github.com/yuanying/tumblr-like" \
+      maintainer="O. Yuanying <yuan-docker@fraction.jp>"
 
-ENV BUNDLER_VERSION 2.0.1
-RUN gem install bundler
-WORKDIR /tmp
-COPY Gemfile Gemfile
-COPY Gemfile.lock Gemfile.lock
 COPY --from=builder /usr/local/bundle /usr/local/bundle
 
 ENV APP_HOME /usr/src/app
-RUN mkdir -p $APP_HOME
 WORKDIR $APP_HOME
 COPY . $APP_HOME
 

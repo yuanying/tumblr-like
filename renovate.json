@@ -1,0 +1,23 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "timezone": "Asia/Tokyo",
+  "dependencyDashboard": true,
+  "lockFileMaintenance": {
+    "description": "Most of Gemfile.lock is gems nothing in Gemfile names, such as the faraday adapters and the oauth helpers. Renovate only moves those when a named gem asks for it, so the lock is rebuilt once a month to keep them current as well",
+    "enabled": true
+  },
+  "packageRules": [
+    {
+      "description": "tumblr_client 0.8.6 pins faraday ~> 1.0, whose JSON middleware calls JSON.parse with arguments json 3 no longer takes. The test fails with json 3, so json stays on 2.x until tumblr_client or faraday moves",
+      "matchManagers": ["bundler"],
+      "matchPackageNames": ["json"],
+      "allowedVersions": "< 3"
+    },
+    {
+      "description": "Workflows are already read by the github-actions manager. Grouping them keeps a handful of actions from arriving as a handful of pull requests, since they are updated together and reviewed the same way",
+      "matchManagers": ["github-actions"],
+      "groupName": "github-actions"
+    }
+  ]
+}
