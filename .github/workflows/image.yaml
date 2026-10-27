@@ -1,7 +1,10 @@
 name: Image
 
-# Every run builds the image and runs the smoke test in it. Only a tag publishes:
-# v0.4.0 is pushed as 0.4.0, 0.4 and latest.
+# Every run builds the image and runs the smoke test in it. A tag publishes a
+# release: v0.4.0 is pushed as 0.4.0, 0.4 and latest. A push to master publishes
+# main, so a vulnerability scanner can tell a fix that is on master from one that
+# has been released. The tag is main even though the branch is master: every
+# repository publishes its default branch under the same name.
 on:
   push:
     branches: [master]
@@ -13,6 +16,7 @@ env:
   # The image runs as a CronJob on the workers of fraction, which are all amd64.
   # The arm64 machines there are control planes and take no workloads.
   PLATFORMS: linux/amd64
+  PUBLISH: ${{ startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/master' }}
 
 jobs:
   image:
@@ -30,6 +34,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=main,enable={{is_default_branch}}
       - name: Build
         uses: docker/build-push-action@v7
         with:
@@ -39,15 +44,17 @@ jobs:
           tags: tumblr-like:test
       - name: Smoke test
         run: docker run --rm --network none tumblr-like:test test/smoke.sh
-      - if: startsWith(github.ref, 'refs/tags/v')
+      - if: env.PUBLISH == 'true'
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       # The builder still holds the layers of the build above, so this only pushes.
+      # The labels include org.opencontainers.image.source and .revision, which
+      # the scanner reads to find the repository and the commit of an image.
       - name: Push
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: env.PUBLISH == 'true'
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -55,3 +62,23 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+  # Each push of main or latest leaves the image it replaced untagged. The action
+  # deletes untagged images only, and treats the platform images and attestations
+  # under a tagged index as part of it, so no tagged image loses a child.
+  cleanup:
+    needs: image
+    if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    # The action is not safe to run twice at once against the same package.
+    concurrency:
+      group: ghcr-cleanup
+    permissions:
+      packages: write
+    steps:
+      - uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1.2.2
+        with:
+          delete-untagged: true
+          # Checks after the run that every multi-arch image still has all of
+          # its platform images, and warns in the log if one does not.
+          validate: true
