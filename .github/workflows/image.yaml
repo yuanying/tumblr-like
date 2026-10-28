@@ -6,9 +6,11 @@ name: Image
 # has been released. The tag is main even though the branch is master: every
 # repository publishes its default branch under the same name.
 #
-# release.yaml calls this with the version it is about to tag. A tag pushed with
-# the run's token starts no workflow, so the release is pushed here first, from
-# the commit about to be tagged, under the same names a tag pushed by hand gets.
+# release.yaml calls this with the version it is about to tag and the commit it
+# is about to tag. A tag pushed with the run's token starts no workflow, so the
+# release is pushed here first, from that commit, under the same names a tag
+# pushed by hand gets. The commit is given because a run started by a merged
+# pull request has the pull request's ref and commit, not master's.
 on:
   push:
     branches: [master]
@@ -18,6 +20,10 @@ on:
     inputs:
       version:
         description: The version tag release.yaml is about to push (vX.Y.Z).
+        type: string
+        required: true
+      ref:
+        description: The commit release.yaml is about to tag (a full SHA).
         type: string
         required: true
 
@@ -36,6 +42,8 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
       - uses: docker/setup-buildx-action@v4
       - id: meta
         uses: docker/metadata-action@v6
@@ -47,6 +55,10 @@ jobs:
             type=semver,pattern={{version}},value=${{ inputs.version }}
             type=semver,pattern={{major}}.{{minor}},value=${{ inputs.version }}
             type=raw,value=main,enable=${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+          # The revision label reads github.sha, which is not the commit built
+          # when release.yaml names one.
+          labels: |
+            ${{ inputs.ref && format('org.opencontainers.image.revision={0}', inputs.ref) || '' }}
       - name: Build
         uses: docker/build-push-action@v7
         with:
