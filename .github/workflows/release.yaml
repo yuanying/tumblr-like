@@ -1,11 +1,23 @@
 name: Release
 
-# Once a week, releases the next patch version when every commit since the
-# latest vX.Y.Z tag, merge commits aside, is Renovate's and they changed
-# something outside .github/ and renovate.json. .github/release/plan.rb decides
-# it and logs why; otherwise the run ends without a release, and the release is
-# left to a tag pushed by hand. `ruby .github/release/plan.rb` asks the same
-# question in a checkout.
+# Once a week, and as soon as a pull request from a vuln-responder/ branch is
+# merged into master, releases the next patch version when every commit since
+# the latest vX.Y.Z tag, merge commits aside, is Renovate's or
+# fraction-vuln-responder's and they changed something outside .github/ and
+# renovate.json. .github/release/plan.rb decides it and writes why to the job
+# summary; otherwise the run ends without a release, and the summary lists the
+# commits that held it and the commands that release it by hand.
+# `ruby .github/release/plan.rb` asks the same question in a checkout.
+#
+# The vulnerability responder (fraction-agents) opens its fixes from
+# vuln-responder/ branches and pushes no tags. Its fix is released on merge, not
+# on Monday, so that the fixed version reaches production without a person
+# cutting it. The weekly run releases one that this run held back or failed to
+# release, once nothing else holds it.
+#
+# A merge releases the commit it made on master (merge_commit_sha), not the
+# head of master at the time the run starts, so the decision, the image and the
+# tag all look at the same commit.
 #
 # A tag pushed with the run's token starts no workflow, so image.yaml would
 # never see this one. The image is pushed by calling image.yaml first, from the
@@ -16,17 +28,35 @@ on:
   schedule:
     - cron: "0 0 * * 1" # Monday 09:00 JST
   workflow_dispatch:
+  pull_request:
+    types: [closed]
+    branches: [master]
 
 permissions: {}
 
+# Every closed pull request starts a run, and in a group a new pending run
+# replaces the pending one. Runs that release nothing take a group of their own,
+# so they neither wait for a release nor replace one waiting for its turn.
 concurrency:
-  group: release
+  group: >-
+    ${{ github.event_name == 'pull_request'
+    && !(github.event.pull_request.merged
+      && startsWith(github.event.pull_request.head.ref, 'vuln-responder/')
+      && github.event.pull_request.head.repo.full_name == github.repository)
+    && format('release-skip-{0}', github.run_id) || 'release' }}
   cancel-in-progress: false
 
 jobs:
   plan:
-    # A dispatch can name any branch, but a release is cut from master only.
-    if: github.ref == 'refs/heads/master'
+    # A dispatch can name any branch, but a release is cut from master only. A
+    # pull request is one merged into master from a vuln-responder/ branch of
+    # this repository, not of a fork.
+    if: >-
+      github.event_name == 'pull_request'
+      && github.event.pull_request.merged
+      && startsWith(github.event.pull_request.head.ref, 'vuln-responder/')
+      && github.event.pull_request.head.repo.full_name == github.repository
+      || github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -34,16 +64,22 @@ jobs:
     outputs:
       version: ${{ steps.plan.outputs.version }}
       message: ${{ steps.plan.outputs.message }}
+      sha: ${{ steps.sha.outputs.sha }}
     steps:
       # Every tag and the history back to the latest one.
       - uses: actions/checkout@v7
         with:
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
+      - id: sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "4.0"
       - id: plan
+        env:
+          RELEASED_BY: "${{ github.event_name == 'pull_request' && format('the merge of pull request #{0}', github.event.pull_request.number) || 'the weekly workflow' }}"
         run: ruby .github/release/plan.rb
 
   image:
@@ -55,6 +91,7 @@ jobs:
     uses: ./.github/workflows/image.yaml
     with:
       version: ${{ needs.plan.outputs.version }}
+      ref: ${{ needs.plan.outputs.sha }}
 
   tag:
     needs: [plan, image]
@@ -64,15 +101,15 @@ jobs:
       contents: write
     steps:
       # An annotated tag, so that it says which updates it released, on the
-      # commit the image was built from: github.sha is the same in every job of
-      # this run.
+      # commit the plan looked at and the image was built from.
       - env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.plan.outputs.version }}
           MESSAGE: ${{ needs.plan.outputs.message }}
+          SHA: ${{ needs.plan.outputs.sha }}
         run: |
           object="$(gh api "repos/$GITHUB_REPOSITORY/git/tags" -f tag="$VERSION" -f message="$MESSAGE" \
-            -f object="$GITHUB_SHA" -f type=commit \
+            -f object="$SHA" -f type=commit \
             -f 'tagger[name]=github-actions[bot]' \
             -f 'tagger[email]=41898282+github-actions[bot]@users.noreply.github.com' --jq .sha)"
           gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$VERSION" -f sha="$object"

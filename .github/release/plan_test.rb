@@ -20,9 +20,10 @@ end
 
 class DecideTest < Minitest::Test
   RENOVATE = ReleasePlan::RENOVATE
+  RESPONDER = ReleasePlan::VULN_RESPONDER
 
-  def commit(author, subject)
-    ReleasePlan::Commit.new(author, subject)
+  def commit(author, subject, sha = "0000000")
+    ReleasePlan::Commit.new(author, subject, sha)
   end
 
   def test_releases_the_next_patch_when_every_commit_is_renovates
@@ -58,6 +59,77 @@ class DecideTest < Minitest::Test
     plan = ReleasePlan.decide("v0.4.0", [], [])
     assert_nil plan.version
     assert_match "v0.4.0", plan.reason
+  end
+
+  def test_releases_the_vulnerability_responders_fixes
+    plan = ReleasePlan.decide(
+      "v0.4.0",
+      [commit(RESPONDER, "Update json to 2.19.1 for CVE-2026-33210")],
+      %w[Gemfile.lock],
+      released_by: "the merge of pull request #21"
+    )
+    assert_equal "v0.4.1", plan.version
+    assert_equal <<~MESSAGE.chomp, plan.message
+      v0.4.1: vulnerability fixes
+
+      Only fraction-vuln-responder[bot]'s fixes since v0.4.0, released by the merge of pull request #21:
+
+      - Update json to 2.19.1 for CVE-2026-33210
+    MESSAGE
+    assert_empty plan.held
+  end
+
+  def test_releases_the_responders_fixes_mixed_with_renovates_updates
+    plan = ReleasePlan.decide(
+      "v0.4.0",
+      [commit(RENOVATE, "chore(deps): update ruby docker tag to v4.0.10"), commit(RESPONDER, "Update json to 2.19.1 for CVE-2026-33210")],
+      %w[Dockerfile Gemfile.lock]
+    )
+    assert_equal "v0.4.1", plan.version
+    assert_equal <<~MESSAGE.chomp, plan.message
+      v0.4.1: vulnerability fixes and dependency updates
+
+      Only fraction-vuln-responder[bot]'s fixes and Renovate's dependency updates since v0.4.0, released by the weekly workflow:
+
+      - chore(deps): update ruby docker tag to v4.0.10
+      - Update json to 2.19.1 for CVE-2026-33210
+    MESSAGE
+  end
+
+  def test_a_persons_commit_holds_the_responders_fix
+    person = commit("OTSUKA, Yuanying", "Support audio posts", "1111111aaaaaaa")
+    plan = ReleasePlan.decide(
+      "v0.4.0",
+      [commit(RESPONDER, "Update json to 2.19.1 for CVE-2026-33210"), person],
+      %w[Gemfile.lock download.rb],
+      head: "2222222bbbbbbb"
+    )
+    assert_nil plan.version
+    assert_equal [person], plan.held
+    assert_match "OTSUKA, Yuanying", plan.reason
+  end
+
+  def test_the_summary_of_a_held_release_lists_the_commits_and_how_to_release_by_hand
+    plan = ReleasePlan.decide(
+      "v0.4.0",
+      [commit(RESPONDER, "Update json to 2.19.1 for CVE-2026-33210", "1111111aaaaaaa"),
+       commit("OTSUKA, Yuanying", "Support audio posts", "2222222bbbbbbb")],
+      %w[Gemfile.lock download.rb],
+      head: "3333333ccccccc"
+    )
+    summary = ReleasePlan.summary(plan)
+    assert_includes summary, plan.reason
+    assert_includes summary, "- 2222222 Support audio posts (OTSUKA, Yuanying)"
+    refute_includes summary, "1111111"
+    assert_includes summary, "git tag --annotate --message=v0.4.1 v0.4.1 3333333ccccccc"
+    assert_includes summary, "git push origin v0.4.1"
+  end
+
+  def test_the_summary_of_a_release_is_its_reason
+    plan = ReleasePlan.decide("v0.4.0", [commit(RENOVATE, "chore(deps): update dependency json to v2.19.0")], %w[Gemfile.lock])
+    summary = ReleasePlan.summary(plan)
+    assert_includes summary, plan.reason
+    refute_includes summary, "git tag"
   end
 
   def test_workflows_and_renovate_json_alone_are_not_released
@@ -115,7 +187,23 @@ class FromGitTest < Minitest::Test
     commit_as ReleasePlan::RENOVATE, "Gemfile.lock", "chore(deps): update dependency json to v2.19.0"
     commit_as "OTSUKA, Yuanying", "download.rb", "Support audio posts"
 
-    assert_nil ReleasePlan.from_git(@dir).version
+    plan = ReleasePlan.from_git(@dir)
+    assert_nil plan.version
+    assert_equal ["Support audio posts"], plan.held.map(&:subject)
+    assert_equal git("rev-parse", "HEAD").chomp, plan.held.first.sha
+    assert_includes ReleasePlan.summary(plan), git("rev-parse", "HEAD").chomp
+  end
+
+  def test_releases_the_responders_fix_merged_into_master
+    git "checkout", "--quiet", "-b", "vuln-responder/cve-2026-33210"
+    commit_as ReleasePlan::VULN_RESPONDER, "Gemfile.lock", "Update json to 2.19.1 for CVE-2026-33210"
+    git "checkout", "--quiet", "master"
+    git "merge", "--quiet", "--no-ff", "--message=Merge pull request #21", "vuln-responder/cve-2026-33210"
+
+    plan = ReleasePlan.from_git(@dir, released_by: "the merge of pull request #21")
+    assert_equal "v0.4.1", plan.version
+    assert_includes plan.message, "released by the merge of pull request #21"
+    assert_includes plan.message, "- Update json to 2.19.1 for CVE-2026-33210"
   end
 
   def test_ignores_a_version_tag_not_reachable_from_head
