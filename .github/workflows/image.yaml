@@ -5,18 +5,28 @@ name: Image
 # main, so a vulnerability scanner can tell a fix that is on master from one that
 # has been released. The tag is main even though the branch is master: every
 # repository publishes its default branch under the same name.
+#
+# release.yaml calls this with the version it is about to tag. A tag pushed with
+# the run's token starts no workflow, so the release is pushed here first, from
+# the commit about to be tagged, under the same names a tag pushed by hand gets.
 on:
   push:
     branches: [master]
     tags: ["v*"]
   pull_request:
+  workflow_call:
+    inputs:
+      version:
+        description: The version tag release.yaml is about to push (vX.Y.Z).
+        type: string
+        required: true
 
 env:
   IMAGE: ghcr.io/${{ github.repository }}
   # The image runs as a CronJob on the workers of fraction, which are all amd64.
   # The arm64 machines there are control planes and take no workloads.
   PLATFORMS: linux/amd64
-  PUBLISH: ${{ startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/master' }}
+  PUBLISH: ${{ startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/master' || inputs.version != '' }}
 
 jobs:
   image:
@@ -31,10 +41,12 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE }}
+          # Without a version the semver tags read the pushed tag. A call runs
+          # for master, but only a push of master moves main.
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=main,enable={{is_default_branch}}
+            type=semver,pattern={{version}},value=${{ inputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ inputs.version }}
+            type=raw,value=main,enable=${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
       - name: Build
         uses: docker/build-push-action@v7
         with:
@@ -66,9 +78,12 @@ jobs:
   # Each push of main or latest leaves the image it replaced untagged. The action
   # deletes untagged images only, and treats the platform images and attestations
   # under a tagged index as part of it, so no tagged image loses a child.
+  #
+  # A call from release.yaml does not run it: a cleanup that failed there would
+  # fail the call and leave the version untagged. The next push cleans up.
   cleanup:
     needs: image
-    if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/master'
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     # The action is not safe to run twice at once against the same package.
     concurrency:

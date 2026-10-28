@@ -1,0 +1,24 @@
+name: Test
+
+# The test of the weekly release's decision (.github/release/plan.rb). The image
+# and its smoke test are image.yaml's.
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  release-plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      # The Ruby of the image's base. plan.rb needs only the standard library
+      # and minitest, which comes with Ruby.
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "4.0"
+      - run: ruby .github/release/plan_test.rb
