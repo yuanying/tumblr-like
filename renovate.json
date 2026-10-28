@@ -1,12 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "description": "A version is proposed only once it has been public for two days, so that a release pulled or fixed in its first days never reaches a branch, and so never one Renovate merges on its own. internalChecksFilter is already strict by default; it is stated so that the wait is read here as holding back the branch and the pull request themselves, not only a status check on them",
-  "extends": ["config:recommended", ":semanticCommitTypeAll(chore)"],
-  "timezone": "Asia/Tokyo",
-  "dependencyDashboard": true,
-  "minimumReleaseAge": "2 days",
-  "internalChecksFilter": "strict",
-  "platformAutomerge": false,
+  "description": "The patch, digest and pinning updates Renovate merges wait for the image workflow (the image built and its smoke test run) and the test workflow, which run on every pull request whatever it changes. What is merged this way reaches a release on its own through the weekly release workflow",
+  "extends": ["github>yuanying/renovate-config", "github>yuanying/renovate-config:automerge-patch"],
   "lockFileMaintenance": {
     "description": "Most of Gemfile.lock is gems nothing in Gemfile names, such as the faraday adapters and the oauth helpers. Renovate only moves those when a named gem asks for it, so the lock is rebuilt once a month to keep them current as well",
     "enabled": true
@@ -17,29 +12,6 @@
       "matchManagers": ["bundler"],
       "matchPackageNames": ["json"],
       "allowedVersions": "< 3"
-    },
-    {
-      "description": "Patch, digest and pinning updates are merged by Renovate itself once the pull request's checks pass: the image workflow (the image built and its smoke test run) and the test workflow, which run on every pull request whatever it changes. platformAutomerge is off so that the merge waits for those checks without relying on the repository's auto-merge setting or branch protection. Minor and major updates only open a pull request. What is merged this way reaches a release on its own through the weekly release workflow",
-      "matchUpdateTypes": ["patch", "digest", "pin", "pinDigest"],
-      "automerge": true
-    },
-    {
-      "description": "Workflows are already read by the github-actions manager. Grouping them keeps a handful of actions from arriving as a handful of pull requests, since they are updated together and reviewed the same way",
-      "matchManagers": ["github-actions"],
-      "groupName": "github-actions"
-    },
-    {
-      "description": "The official ubuntu image is proposed without the two-day wait. Docker Hub gives a tag's last push as its release time, and the official ubuntu tags are pushed again every day or two, so a tag seldom looks two days old and an update would hardly ever be proposed. tumblr-like does not use the image today; the rule is kept so that this file matches the other repositories and the image is not held back once it is used. The name is matched as it is written, not as Docker Hub resolves it, so each way of writing the image is listed. The pull request's checks still have to pass",
-      "matchDatasources": ["docker"],
-      "matchPackageNames": [
-        "ubuntu",
-        "library/ubuntu",
-        "docker.io/ubuntu",
-        "docker.io/library/ubuntu",
-        "index.docker.io/ubuntu",
-        "index.docker.io/library/ubuntu"
-      ],
-      "minimumReleaseAge": null
     }
   ]
 }
